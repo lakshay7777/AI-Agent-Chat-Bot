@@ -1,0 +1,1 @@
+User Request → Django View → PDF Agent → Gemini AI + PDF Knowledge → Response → Database → JSON Response
