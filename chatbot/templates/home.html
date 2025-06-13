@@ -90,6 +90,39 @@
         .header h1 {
             font-size: 24px;
             font-weight: 600;
+            margin-bottom: 15px;
+        }
+        
+        /* Toggle Buttons Styles */
+        .mode-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .toggle-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .toggle-btn.active {
+            background: white;
+            color: #667eea;
+            border-color: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
         
         .messages {
@@ -212,6 +245,18 @@
             font-weight: 600;
         }
         
+        /* PDF Upload Section */
+        .pdf-section {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e1e5e9;
+            display: none;
+        }
+        
+        .pdf-section.active {
+            display: block;
+        }
+        
         .input-area {
             padding: 20px;
             background: white;
@@ -219,6 +264,11 @@
             display: flex;
             gap: 15px;
             align-items: center;
+        }
+        
+        .input-area.disabled {
+            opacity: 0.5;
+            pointer-events: none;
         }
         
         input {
@@ -257,6 +307,22 @@
             background: #ccc;
             cursor: not-allowed;
             transform: none;
+        }
+        
+        /* Mode Warning */
+        .mode-warning {
+            padding: 15px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            color: #856404;
+            text-align: center;
+            margin: 20px;
+            display: none;
+        }
+        
+        .mode-warning.active {
+            display: block;
         }
         
         @keyframes fadeIn {
@@ -309,6 +375,16 @@
                 flex-direction: column;
                 gap: 10px;
             }
+            
+            .mode-toggle {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .toggle-btn {
+                width: 100%;
+                max-width: 250px;
+            }
         }
     </style>
 </head>
@@ -329,46 +405,187 @@
     <div class="chat-container">
         <div class="header">
             <h1>🤖 AI Assistant</h1>
+            <div class="mode-toggle">
+                <button class="toggle-btn" data-mode="database">📊 Questions from Database</button>
+                <button class="toggle-btn" data-mode="general">🔍 General Questions</button>
+                <button class="toggle-btn" data-mode="pdf">📄 PDF Related Questions</button>
+            </div>
         </div>
 
-        <div style="padding: 20px; background: #f8f9fa; border-bottom: 1px solid #e1e5e9;">
-        <!-- PDF File Upload -->
-        <form id="pdfUploadForm" enctype="multipart/form-data" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
-            {% csrf_token %}
-            <label for="pdfFile" style="font-weight: 600; color: #333;">Upload PDF File:</label>
-            <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" style="flex: 1; min-width: 200px;">
-            <button type="button" onclick="uploadPDF()" style="padding: 8px 20px; background: #28a745; border: none; color: white; border-radius: 5px; cursor: pointer;">Upload</button>
-        </form>
-        
-        <!-- PDF URL Form -->
-        <form id="pdfUrlForm" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-            {% csrf_token %}
-            <label for="pdfUrl" style="font-weight: 600; color: #333;">Or Add PDF URL:</label>
-            <input type="url" id="pdfUrl" name="pdf_url" placeholder="https://example.com/document.pdf" style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-            <input type="text" id="pdfName" name="pdf_name" placeholder="Document name (optional)" style="min-width: 150px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-            <button type="button" onclick="addPDFUrl()" style="padding: 8px 20px; background: #007bff; border: none; color: white; border-radius: 5px; cursor: pointer;">Add URL</button>
-        </form>
-        
-        <div id="uploadStatus" style="margin-top: 10px; font-size: 14px;"></div>
-    </div>
+        <div class="mode-warning">
+            <strong>⚠️ Please select a mode above to start chatting!</strong>
+        </div>
+
+        <div class="pdf-section" id="pdfSection">
+            <!-- PDF File Upload -->
+            <form id="pdfUploadForm" enctype="multipart/form-data" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                {% csrf_token %}
+                <label for="pdfFile" style="font-weight: 600; color: #333;">Upload PDF File:</label>
+                <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" style="flex: 1; min-width: 200px;">
+                <button type="button" onclick="uploadPDF()" style="padding: 8px 20px; background: #28a745; border: none; color: white; border-radius: 5px; cursor: pointer;">Upload</button>
+            </form>
+            
+            <!-- PDF URL Form -->
+            <form id="pdfUrlForm" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                {% csrf_token %}
+                <label for="pdfUrl" style="font-weight: 600; color: #333;">Or Add PDF URL:</label>
+                <input type="url" id="pdfUrl" name="pdf_url" placeholder="https://example.com/document.pdf" style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                <input type="text" id="pdfName" name="pdf_name" placeholder="Document name (optional)" style="min-width: 150px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                <button type="button" onclick="addPDFUrl()" style="padding: 8px 20px; background: #007bff; border: none; color: white; border-radius: 5px; cursor: pointer;">Add URL</button>
+            </form>
+            
+            <div id="uploadStatus" style="margin-top: 10px; font-size: 14px;"></div>
+        </div>
         
         <div id="messages" class="messages">
             <div class="message bot-message">
                 <div class="message-content">
                     <strong>Hello {{ user.first_name|default:user.username }}! I'm your AI assistant.</strong> 
-                    <p><em>What can I help you with today?</em></p>
+                    <p><em>Please select a mode above to get started:</em></p>
+                    <ul>
+                        <li><strong>📊 Database Questions:</strong> Ask about users, messages, and system statistics</li>
+                        <li><strong>🔍 General Questions:</strong> Get answers with web search, reasoning, and financial data</li>
+                        <li><strong>📄 PDF Questions:</strong> Upload a PDF and ask questions about its content</li>
+                    </ul>
                 </div>
             </div>
         </div>
         
-        <div class="input-area">
-            <input type="text" id="userInput" placeholder="Ask me anything..." />
-            <button onclick="sendMessage()">Send</button>
+        <div class="input-area disabled" id="inputArea">
+            <input type="text" id="userInput" placeholder="Select a mode first to start chatting..." disabled />
+            <button onclick="sendMessage()" disabled>Send</button>
         </div>
     </div>
+<script>
+        let currentMode = null;
+        let hasPDF = false;
 
-    <script>
+        // Mode selection
+        $('.toggle-btn').click(function() {
+            const mode = $(this).data('mode');
+            currentMode = mode;
+            
+            // Update button states
+            $('.toggle-btn').removeClass('active');
+            $(this).addClass('active');
+            
+            // Show/hide PDF section and manage chat state
+            if (mode === 'pdf') {
+                $('#pdfSection').addClass('active');
+                checkPDFStatus();
+            } else {
+                $('#pdfSection').removeClass('active');
+                enableChat();
+            }
+            
+            // Hide mode warning
+            $('.mode-warning').removeClass('active');
+            
+            // Update welcome message based on mode
+            updateWelcomeMessage(mode);
+        });
+
+        function updateWelcomeMessage(mode) {
+            const welcomeMessages = {
+                database: {
+                    title: "📊 Database Mode Active",
+                    description: "Ask me about user statistics, chat data, PDF uploads, or search for specific users. Try: 'How many users are registered?', 'Show chat statistics', 'Find user john', or 'Users registered in last 7 days'.",
+                    examples: [
+                        "How many users are registered?",
+                        "Show me chat statistics",
+                        "Find user admin", 
+                        "Users who joined last week",
+                        "PDF upload statistics"
+                    ]
+                },
+                general: {
+                    title: "🔍 General Mode Active", 
+                    description: "I can help with web searches, reasoning tasks, financial information, and general questions. I have access to current information and can analyze complex problems.",
+                    examples: [
+                        "What's the current weather?",
+                        "Analyze this logical problem...",
+                        "Get Tesla stock price",
+                        "Search for recent AI news",
+                        "Explain quantum computing"
+                    ]
+                },
+                pdf: {
+                    title: "📄 PDF Mode Active",
+                    description: "Upload a PDF document or provide a PDF URL first, then ask questions about its content. I'll analyze and answer based on the document.",
+                    examples: [
+                        "Summarize the main points",
+                        "What does chapter 3 discuss?",
+                        "Find information about...",
+                        "Explain the methodology used"
+                    ]
+                }
+            };
+            
+            const msg = welcomeMessages[mode];
+            const $messages = $('#messages');
+            $messages.empty();
+            
+            const examplesList = msg.examples.map(ex => `<li><em>${ex}</em></li>`).join('');
+            
+            const $messageDiv = $('<div>').addClass('message bot-message');
+            const $contentDiv = $('<div>').addClass('message-content');
+            $contentDiv.html(`
+                <strong>${msg.title}</strong>
+                <p>${msg.description}</p>
+                <p><strong>Example questions:</strong></p>
+                <ul>${examplesList}</ul>
+            `);
+            $messageDiv.append($contentDiv);
+            $messages.append($messageDiv);
+            
+            $messages.scrollTop($messages[0].scrollHeight);
+        }
+
+        function checkPDFStatus() {
+            // Check if user has uploaded PDF
+            $.ajax({
+                url: '/check-pdf-status/',
+                method: 'GET',
+                success: function(data) {
+                    hasPDF = data.has_pdf;
+                    if (hasPDF) {
+                        enableChat();
+                        $('#uploadStatus').html(`<span style="color: #28a745;">✓ Active PDF: ${data.pdf_name}</span>`);
+                    } else {
+                        disableChat("Please upload a PDF or provide a PDF URL first");
+                        $('#uploadStatus').html('<span style="color: #dc3545;">No active PDF found</span>');
+                    }
+                },
+                error: function() {
+                    hasPDF = false;
+                    disableChat("Please upload a PDF or provide a PDF URL first");
+                }
+            });
+        }
+
+        function enableChat() {
+            $('#inputArea').removeClass('disabled');
+            $('#userInput').prop('disabled', false).attr('placeholder', 'Ask me anything...');
+            $('#inputArea button').prop('disabled', false);
+        }
+
+        function disableChat(message = "Select a mode first to start chatting...") {
+            $('#inputArea').addClass('disabled');
+            $('#userInput').prop('disabled', true).attr('placeholder', message);
+            $('#inputArea button').prop('disabled', true);
+        }
+
         function sendMessage() {
+            if (!currentMode) {
+                alert('Please select a mode first!');
+                return;
+            }
+
+            if (currentMode === 'pdf' && !hasPDF) {
+                alert('Please upload a PDF or provide a PDF URL first!');
+                return;
+            }
+
             const $input = $('#userInput');
             const message = $input.val().trim();
             
@@ -377,33 +594,42 @@
             addMessage(message, 'user');
             $input.val('');
 
+            // Disable input during processing
             $input.prop('disabled', true);
-            $('button').prop('disabled', true);
-            $('button').text('Thinking...');
+            $('#inputArea button').prop('disabled', true).text('Processing...');
 
             $.ajax({
-                url: '{% url "chatbot_api" %}',
+                url: '/chatbot-api/',
                 method: 'POST',
                 contentType: 'application/json',
                 headers: {
                     'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val()
                 },
-                data: JSON.stringify({query: message}),
+                data: JSON.stringify({
+                    query: message,
+                    mode: currentMode
+                }),
                 success: function(data) {
                     if (data.status) {
                         addMessage(data.response, 'bot');
                     } else {
-                        addMessage('Sorry, something went wrong. Please try again.', 'bot');
+                        addMessage(`Error: ${data.error}`, 'bot');
                     }
                 },
-                error: function() {
-                    addMessage('Network error. Please check your connection and try again.', 'bot');
+                error: function(xhr) {
+                    let errorMsg = 'Network error. Please check your connection and try again.';
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
+                    addMessage(`Error: ${errorMsg}`, 'bot');
                 },
                 complete: function() {
-                    $input.prop('disabled', false);
-                    $('button').prop('disabled', false);
-                    $('button').text('Send');
-                    $input.focus();
+                    // Re-enable input if mode is still selected
+                    if (currentMode && (currentMode !== 'pdf' || hasPDF)) {
+                        $input.prop('disabled', false);
+                        $('#inputArea button').prop('disabled', false).text('Send');
+                        $input.focus();
+                    }
                 }
             });
         }
@@ -413,7 +639,9 @@
             const $messageDiv = $('<div>').addClass(`message ${type}-message`);
             const $contentDiv = $('<div>').addClass('message-content');
             
-            $contentDiv.html(formatMessage(text));
+            // Enhanced message formatting
+            const formattedText = formatMessage(text);
+            $contentDiv.html(formattedText);
             
             $messageDiv.append($contentDiv);
             $messages.append($messageDiv);
@@ -421,28 +649,45 @@
         }
 
         function formatMessage(text) {
+            // Enhanced markdown-like formatting
             return text
+                // Headers
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                // Bold and italic
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/`(.*?)`/g, '<code>$1</code>')
+                // Code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Lists
+                .replace(/^\* (.+)$/gm, '<li>$1</li>')
+                .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+                // Paragraphs
                 .replace(/\n\n/g, '</p><p>')
                 .replace(/\n/g, '<br>')
                 .replace(/^(.*)$/, '<p>$1</p>')
                 .replace(/<p><\/p>/g, '')
-                .replace(/^\* (.*$)/gim, '<li>$1</li>')
-                .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-                .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
-                .replace(/(<li>.*<\/li>)/s, '<ol>$1</ol>');
+                // Wrap lists
+                .replace(/(<li>.*<\/li>)/s, function(match) {
+                    if (match.includes('1.') || /^\d+\./.test(text)) {
+                        return '<ol>' + match + '</ol>';
+                    } else {
+                        return '<ul>' + match + '</ul>';
+                    }
+                });
         }
 
         $(document).ready(function() {
+            // Enter key handler
             $('#userInput').on('keypress', function(e) {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !$(this).prop('disabled')) {
                     sendMessage();
                 }
             });
 
-            $('#userInput').focus();
+            // Show mode warning initially
+            $('.mode-warning').addClass('active');
         });
 
         function uploadPDF() {
@@ -460,7 +705,7 @@
             $('#uploadStatus').html('<span style="color: #007bff;">Uploading...</span>');
             
             $.ajax({
-                url: '{% url "upload_pdf" %}',
+                url: '/upload-pdf/',
                 method: 'POST',
                 data: formData,
                 processData: false,
@@ -468,6 +713,8 @@
                 success: function() {
                     $('#uploadStatus').html('<span style="color: #28a745;">✓ PDF uploaded successfully! You can now ask questions about this document.</span>');
                     $('#pdfFile').val('');
+                    hasPDF = true;
+                    enableChat();
                 },
                 error: function() {
                     $('#uploadStatus').html('<span style="color: #dc3545;">✗ Upload failed. Please try again.</span>');
@@ -492,7 +739,7 @@
             $('#uploadStatus').html('<span style="color: #007bff;">Adding PDF URL...</span>');
 
             $.ajax({
-                url: '{% url "add_pdf_url" %}',
+                url: '/add-pdf-url/',
                 method: 'POST',
                 data: formData,
                 processData: false,
@@ -501,12 +748,14 @@
                     $('#uploadStatus').html('<span style="color: #28a745;">✓ PDF URL added successfully! You can now ask questions about this document.</span>');
                     $('#pdfUrl').val('');
                     $('#pdfName').val('');
+                    hasPDF = true;
+                    enableChat();
                 },
                 error: function() {
                     $('#uploadStatus').html('<span style="color: #dc3545;">✗ Failed to add PDF URL. Please try again.</span>');
                 }
             });
-            }
+        }
     </script>
     
     {% csrf_token %}

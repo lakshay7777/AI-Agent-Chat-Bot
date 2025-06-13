@@ -23,39 +23,13 @@ from django.conf import settings
 import os
 from .models import UserProfile, ChatMessage, PDFDocument
 from .models import UserProfile, ChatMessage, PDFDocument, PDFUrl
+# from .database_tools import DatabaseTools, create_database_query_function
+from agno.embedder.google import GeminiEmbedder
+from .database_tools import DatabaseTools, query_database
+
+import re
 
 storage = SqliteStorage(table_name = "chat_history_last_30", db_file = "temp/data.db")
-
-
-# API_key = "AIzaSyCWjyirQA7oIhHKrM3sF5ndv0HY2T62Vvw"
-
-# COLLECTION_NAME = "pdf-url-reader"
-
-# vector_db = Qdrant(collection=COLLECTION_NAME, url="http://localhost:8000")
-
-# knowledge_base = PDFUrlKnowledgeBase(
-#     urls=["https://www.drishtiias.com/images/pdf/NCERT-Class-10-Science.pdf"],
-#     vector_db=vector_db,
-#     reader=PDFUrlReader(chunk=True),
-# )
-
-# pdf_agent = Agent(
-#     model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
-#     knowledge=knowledge_base,
-#     search_knowledge=True,
-#     storage = storage,
-#     add_history_to_messages = True,
-#     num_history_runs = 10,
-#     instructions=[
-#         "You are a helpful AI assistant with access to NCERT Class 10 Science textbook",
-#         "Answer questions based on the knowledge from the PDF and your general knowledge",
-#         "If the question is related to Class 10 Science topics, prioritize information from the textbook",
-#         "Be clear, educational, and provide detailed explanations",
-#         "If you can't find relevant information in the textbook, use your general knowledge to help",
-#         "and also give me source that you use to replay the questions"
-#     ],
-#     markdown=True,
-# )
 
 
 def login_view(request):
@@ -138,6 +112,7 @@ def logout_view(request):
 @login_required
 def home(request):
     return render(request, 'home.html')
+
 @login_required
 def upload_pdf(request):
     if request.method == 'POST':
@@ -151,8 +126,7 @@ def upload_pdf(request):
             messages.error(request, 'Please upload a PDF file only')
             return redirect('home')
         
-      
-                # Deactivate all previous PDFs and URLs for this user
+        # Deactivate all previous PDFs and URLs for this user
         PDFDocument.objects.filter(user=request.user).update(is_active=False)
         PDFUrl.objects.filter(user=request.user).update(is_active=False)
         
@@ -199,69 +173,84 @@ def add_pdf_url(request):
     
     return redirect('home')
 
-def get_user_agent(user):
-    """Create agent with user's active PDF/URL or fallback to general model"""
-    API_key = "AIzaSyCWjyirQA7oIhHKrM3sF5ndv0HY2T62Vvw"
+@login_required
+def check_pdf_status(request):
+    """Check if user has an active PDF document"""
+    active_pdf = PDFDocument.objects.filter(user=request.user, is_active=True).first()
+    active_pdf_url = PDFUrl.objects.filter(user=request.user, is_active=True).first()
     
-    # Check if user has an active PDF file
-    active_pdf = PDFDocument.objects.filter(user=user, is_active=True).first()
-    active_pdf_url = PDFUrl.objects.filter(user=user, is_active=True).first()
-    
-    if active_pdf or active_pdf_url:
-        COLLECTION_NAME = f"pdf-user-{user.id}"
-        vector_db = Qdrant(collection=COLLECTION_NAME, url="http://localhost:8000")
-        
-        if active_pdf:
-            # Use uploaded PDF file
-            pdf_path = active_pdf.file.path
-            source_name = active_pdf.name
-            urls = [pdf_path]
-        else:
-            # Use PDF URL
-            pdf_url = active_pdf_url.url
-            source_name = active_pdf_url.name
-            urls = [pdf_url]
-        
-        knowledge_base = PDFUrlKnowledgeBase(
-            urls=urls,
-            vector_db=vector_db,
-            reader=PDFUrlReader(chunk=True),
-        )
-        
-        agent = Agent(
-            model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
-            knowledge=knowledge_base,
-            search_knowledge=True,
-            storage=storage,
-            add_history_to_messages=True,
-            num_history_runs=10,
-            instructions=[
-                f"You are a helpful AI assistant with access to the PDF: {source_name}",
-                "Answer questions based on the knowledge from the PDF and your general knowledge",
-                "If the question is related to topics in the PDF, prioritize information from the document",
-                "Be clear, educational, and provide detailed explanations",
-                "If you can't find relevant information in the PDF, use your general knowledge to help",
-                "Always mention the source of your information (PDF document or general knowledge)"
-            ],
-            markdown=True,
-        )
+    if active_pdf:
+        return JsonResponse({
+            'has_pdf': True,
+            'pdf_name': active_pdf.name,
+            'pdf_type': 'file'
+        })
+    elif active_pdf_url:
+        return JsonResponse({
+            'has_pdf': True,
+            'pdf_name': active_pdf_url.name,
+            'pdf_type': 'url'
+        })
     else:
-        # Fallback to general Gemini model without PDF knowledge
-        agent = Agent(
-            model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
-            storage=storage,
-            add_history_to_messages=True,
-            num_history_runs=10,
-            instructions=[
-                "You are a helpful AI assistant",
-                "Answer questions using your general knowledge",
-                "Be clear, educational, and provide detailed explanations",
-                "If you need specific document context, ask the user to upload a relevant PDF or provide a PDF URL"
-            ],
-            markdown=True,
-        )
+        return JsonResponse({
+            'has_pdf': False,
+            'pdf_name': None,
+            'pdf_type': None
+        })
+
+def detect_database_query(query: str) -> dict:
+    """
+    Detect if the query is asking for database information and determine the query type
+    """
+    query_lower = query.lower()
     
-    return agent
+    # Database query patterns - matching the actual query_database function parameters
+    patterns = {
+        'user_stats': [
+            r'how many users?', r'total users?', r'user count', r'number of users',
+            r'user statistics', r'user stats', r'how many people', r'user overview',
+            r'active users', r'recent signups', r'new users'
+        ],
+        'chat_stats': [
+            r'chat statistics', r'message stats', r'chat stats', r'how many messages',
+            r'message count', r'chat activity', r'conversation stats', r'most active users'
+        ],
+        'pdf_stats': [
+            r'pdf statistics', r'pdf stats', r'how many pdfs', r'pdf count',
+            r'document stats', r'upload stats', r'pdf uploads'
+        ],
+        'users_by_date': [
+            r'users? (?:registered|signed up|joined) (?:in )?(?:the )?last (\d+) days?',
+            r'new users (?:in )?(?:the )?last (\d+) days?',
+            r'recent users (\d+) days?',
+            r'users? (?:from|in) (?:the )?last (\d+) days?'
+        ],
+        'user_search': [
+            r'find user (.+)', r'search user (.+)', r'look for user (.+)',
+            r'user named (.+)', r'user with (.+)'
+        ],
+        'user_activity': [
+            r'activity (?:of|for) user (.+)', r'user (.+) activity',
+            r'what has user (.+) done', r'(.+) user stats'
+        ]
+    }
+    
+    for query_type, pattern_list in patterns.items():
+        for pattern in pattern_list:
+            match = re.search(pattern, query_lower)
+            if match:
+                result = {'type': query_type, 'match': True}
+                
+                # Extract parameters based on query type
+                if query_type == 'users_by_date' and match.groups():
+                    result['days'] = int(match.group(1))
+                elif query_type in ['user_search', 'user_activity'] and match.groups():
+                    result['query'] = match.group(1).strip()
+                
+                return result
+    
+    return {'type': None, 'match': False}
+
 
 @csrf_exempt
 @login_required
@@ -272,14 +261,37 @@ def chatbot_api(request):
     try:
         data = json.loads(request.body)
         user_query = data.get('query', '').strip()
+        mode = data.get('mode', '').strip()
 
         if not user_query:
             return JsonResponse({'status': False, 'error': 'No query provided'}, status=400)
-
-        # Get user-specific agent
-        user_agent = get_user_agent(request.user)
         
-        # Get AI response
+        if not mode:
+            return JsonResponse({'status': False, 'error': 'No mode selected'}, status=400)
+
+        # Handle different modes
+        if mode == 'database':
+            # Database mode - use database tools
+            user_agent = get_database_agent(request.user)
+        elif mode == 'general':
+            # General mode - use web search, reasoning, finance tools
+            user_agent = get_general_agent(request.user)
+        elif mode == 'pdf':
+            # PDF mode - check if user has active PDF
+            active_pdf = PDFDocument.objects.filter(user=request.user, is_active=True).first()
+            active_pdf_url = PDFUrl.objects.filter(user=request.user, is_active=True).first()
+            
+            if not active_pdf and not active_pdf_url:
+                return JsonResponse({
+                    'status': False, 
+                    'error': 'Please upload a PDF file or provide a PDF URL first'
+                }, status=400)
+            
+            user_agent = get_pdf_agent(request.user)
+        else:
+            return JsonResponse({'status': False, 'error': 'Invalid mode'}, status=400)
+
+        # Get response from agent
         response = user_agent.run(user_query)
         
         if hasattr(response, 'content'):
@@ -287,10 +299,10 @@ def chatbot_api(request):
         else:
             ai_response = str(response)
 
-        # Save chat message
+        # Save chat message with mode
         ChatMessage.objects.create(
             user=request.user,
-            message=user_query,
+            message=f"[{mode.upper()}] {user_query}",
             response=ai_response
         )
 
@@ -299,3 +311,145 @@ def chatbot_api(request):
     except Exception as e:
         print(f"Error in chatbot_api: {str(e)}")
         return JsonResponse({'status': False, 'error': 'Something went wrong'}, status=500)
+
+
+def get_database_agent(user):
+    """Create agent specifically for database queries"""
+    API_key = "AIzaSyCWjyirQA7oIhHKrM3sF5ndv0HY2T62Vvw"
+    
+    # Create database query function
+    # database_query_func = create_database_query_function()
+    database_query_func = query_database
+
+    
+    # Get database schema for context
+    db_schema = DatabaseTools.get_database_schema()
+    
+    agent = Agent(
+        model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
+        storage=storage,
+        add_history_to_messages=True,
+        num_history_runs=5,
+        # tools=[database_query_func],
+        # tools=[database_query_func],
+        tools=[query_database],
+
+        instructions=[
+            "You are a database assistant for this application.",
+            "Your primary function is to answer questions about the application's database.",
+            "Use the query_database function to get information about users, messages, and PDF uploads.",
+            "Be precise and provide statistical information when requested.",
+            "Always format your responses clearly with proper headings and bullet points.",
+            "",
+            "IMPORTANT: When using the query_database function, use these exact query_type values:",
+            "- 'user_stats' for user statistics (total users, active users, recent signups)",
+            "- 'chat_stats' for chat/message statistics",
+            "- 'pdf_stats' for PDF upload statistics", 
+            "- 'user_search' for searching specific users (provide the 'query' parameter)",
+            "- 'user_activity' for getting user activity (provide 'username' parameter)",
+            "- 'users_by_date' for users by date range (provide 'days' parameter)",
+            "",
+            "EXAMPLES:",
+            "- For 'How many users are registered?': use query_type='user_stats'",
+            "- For 'Find user john': use query_type='user_search', query='john'",
+            "- For 'Users in last 30 days': use query_type='users_by_date', days=30",
+            "- For 'Chat statistics': use query_type='chat_stats'",
+            "- For 'PDF statistics': use query_type='pdf_stats'",
+            "",
+            db_schema
+        ],
+        markdown=True,
+    )
+    
+    return agent
+
+
+def get_general_agent(user):
+    """Create agent for general questions with web search, reasoning, and finance tools"""
+    API_key = "AIzaSyCWjyirQA7oIhHKrM3sF5ndv0HY2T62Vvw"
+    
+    agent = Agent(
+        model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
+        storage=storage,
+        add_history_to_messages=True,
+        num_history_runs=5,
+        tools=[DuckDuckGoTools(), ReasoningTools(), YFinanceTools()],
+        instructions=[
+            "You are a general-purpose AI assistant with access to web search, reasoning, and financial data",
+            "Use DuckDuckGo for web searches when you need current information",
+            "Use ReasoningTools for complex logical problems and step-by-step analysis", 
+            "Use YFinance for stock prices, financial data, and market information",
+            "Provide comprehensive, well-researched answers",
+            "Always cite your sources when using web search results",
+            "For financial queries, provide current data and relevant analysis",
+            "Be helpful, accurate, and educational in your responses"
+        ],
+        markdown=True,
+    )
+    
+    return agent
+
+
+def get_pdf_agent(user):
+    """Create agent for PDF-related questions"""
+    API_key = "AIzaSyCWjyirQA7oIhHKrM3sF5ndv0HY2T62Vvw"
+    
+    # Get active PDF
+    active_pdf = PDFDocument.objects.filter(user=user, is_active=True).first()
+    active_pdf_url = PDFUrl.objects.filter(user=user, is_active=True).first()
+    
+    COLLECTION_NAME = f"pdf-user-{user.id}"
+    # vector_db = Qdrant(collection=COLLECTION_NAME, url="http://localhost:8000")
+    # from agno.embedder.google import GeminiEmbedder
+    vector_db = Qdrant(collection=COLLECTION_NAME, url="http://localhost:8000")
+    # vector_db = Qdrant(
+    #     collection=COLLECTION_NAME, 
+    #     url="http://localhost:8000",
+    #     embedder=GeminiEmbedder(api_key=API_key)
+    # )
+    # vector_db = Qdrant(
+    # collection=COLLECTION_NAME, 
+    # url=":memory:",
+    # embedder=GeminiEmbedder(api_key=API_key)
+    # )
+    # vector_db = Qdrant(
+    # collection=COLLECTION_NAME, 
+    # url="http://localhost:6333",
+    # embedder=GeminiEmbedder(api_key=API_key)
+    # )
+    if active_pdf:
+        # Use uploaded PDF file
+        pdf_path = active_pdf.file.path
+        source_name = active_pdf.name
+        urls = [pdf_path]
+    else:
+        # Use PDF URL
+        pdf_url = active_pdf_url.url
+        source_name = active_pdf_url.name
+        urls = [pdf_url]
+    
+    knowledge_base = PDFUrlKnowledgeBase(
+        urls=urls,
+        vector_db=vector_db,
+        reader=PDFUrlReader(chunk=True),
+    )
+    
+    agent = Agent(
+        model=Gemini(id="gemini-2.0-flash-exp", api_key=API_key),
+        knowledge=knowledge_base,
+        search_knowledge=True,
+        storage=storage,
+        add_history_to_messages=True,
+        num_history_runs=5,
+        instructions=[
+            f"You are a helpful AI assistant with access to the PDF: {source_name}",
+            "Answer questions based on the knowledge from the PDF and your general knowledge",
+            "If the question is related to topics in the PDF, prioritize information from the document",
+            "Be clear, educational, and provide detailed explanations",
+            "If you can't find relevant information in the PDF, use your general knowledge to help",
+            "Always mention the source of your information (PDF document or general knowledge)"
+        ],
+        markdown=True,
+    )
+    
+    return agent
